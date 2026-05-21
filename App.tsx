@@ -247,9 +247,8 @@ export default function App() {
             )}
 
             {photoUri ? (
-              <Image
+              <View
                 pointerEvents="none"
-                source={selectedStyle.image}
                 style={[
                   styles.hairstyleOverlay,
                   {
@@ -258,8 +257,9 @@ export default function App() {
                     width: `${selectedStyle.width * fit.scale}%`,
                   },
                 ]}
-                resizeMode="contain"
-              />
+              >
+                <Image source={selectedStyle.image} style={styles.hairstyleImage} resizeMode="contain" />
+              </View>
             ) : null}
           </View>
 
@@ -424,6 +424,10 @@ const styles = StyleSheet.create({
   hairstyleOverlay: {
     aspectRatio: 1,
     position: "absolute",
+  },
+  hairstyleImage: {
+    height: "100%",
+    width: "100%",
   },
   placeholder: {
     alignItems: "center",
