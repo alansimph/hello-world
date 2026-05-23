@@ -1,14 +1,15 @@
-# Hairstyle Preview Mobile App
+# Classroom Bingo Mobile App
 
-An Expo/React Native prototype for previewing hairstyle overlays on a front-facing portrait.
+An Expo/React Native bingo game designed for phones, tablets, and web browsers.
 
 ## Features
 
-- Upload or change a portrait photo from the device photo library.
-- Choose from a horizontal photo list of bundled hairstyle overlays.
-- Preview the selected hairstyle directly on top of the portrait.
-- Nudge the overlay left, right, up, down, larger, or smaller for a better fit.
-- Save the finished preview to the device photo library, share it on mobile, or download it in a browser.
+- Add 2 to 6 players with child-friendly team names.
+- Start a fresh game with randomized 5x5 boards using numbers 1 to 25.
+- Take turns pressing the Bingo Button to call a random unused number.
+- Automatically mark called numbers on every player's board.
+- Declare a winner when a player completes a horizontal, vertical, or diagonal line.
+- Use a minimalist responsive layout that works well on mobile screens, tablets, and web.
 
 ## Run locally
 

@@ -1,29 +1,18 @@
 {
   "expo": {
-    "name": "Hairstyle Preview",
-    "slug": "hairstyle-preview",
+    "name": "Classroom Bingo",
+    "slug": "classroom-bingo",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "backgroundColor": "#fff7f1"
+      "backgroundColor": "#f7fbf4"
     },
-    "assetBundlePatterns": [
-      "assets/**/*"
-    ],
     "ios": {
-      "supportsTablet": true,
-      "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Select a portrait photo and save your hairstyle preview."
-      }
+      "supportsTablet": true
     },
     "android": {
-      "permissions": [
-        "READ_MEDIA_IMAGES",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
-      ]
+      "permissions": []
     },
     "web": {
       "bundler": "metro"
