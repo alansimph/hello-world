@@ -1,217 +1,125 @@
 import { StatusBar } from "expo-status-bar";
-import * as ImagePicker from "expo-image-picker";
-import * as MediaLibrary from "expo-media-library";
-import * as Sharing from "expo-sharing";
-import { captureRef } from "react-native-view-shot";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  Alert,
-  Image,
-  ImageSourcePropType,
-  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
 
-type Hairstyle = {
+type Player = {
   id: string;
   name: string;
-  description: string;
-  image: ImageSourcePropType;
-  top: number;
-  left: number;
-  width: number;
-  swatch: string;
+  board: number[];
 };
 
-type FitAdjustments = {
-  x: number;
-  y: number;
-  scale: number;
+type Winner = {
+  playerId: string;
+  lines: string[];
 };
 
-const HAIRSTYLES: Hairstyle[] = [
+const BOARD_SIZE = 5;
+const MAX_NUMBER = 25;
+const MIN_PLAYERS = 2;
+const MAX_PLAYERS = 6;
+const NUMBERS = Array.from({ length: MAX_NUMBER }, (_, index) => index + 1);
+const DEFAULT_PLAYER_NAMES = ["Blue Team", "Red Team"];
+
+const WINNING_LINES = [
+  ...Array.from({ length: BOARD_SIZE }, (_, row) => ({
+    name: `Row ${row + 1}`,
+    indexes: Array.from({ length: BOARD_SIZE }, (_, column) => row * BOARD_SIZE + column),
+  })),
+  ...Array.from({ length: BOARD_SIZE }, (_, column) => ({
+    name: `Column ${column + 1}`,
+    indexes: Array.from({ length: BOARD_SIZE }, (_, row) => row * BOARD_SIZE + column),
+  })),
   {
-    id: "bob",
-    name: "Soft Bob",
-    description: "Rounded chin-length cut",
-    image: require("./assets/hairstyles/bob.png"),
-    top: -1,
-    left: 16,
-    width: 68,
-    swatch: "#2d211d",
+    name: "Diagonal",
+    indexes: Array.from({ length: BOARD_SIZE }, (_, index) => index * BOARD_SIZE + index),
   },
   {
-    id: "curtain-bangs",
-    name: "Curtain Bangs",
-    description: "Long layers with face framing",
-    image: require("./assets/hairstyles/curtain-bangs.png"),
-    top: -2,
-    left: 13,
-    width: 74,
-    swatch: "#7a3d21",
-  },
-  {
-    id: "pixie",
-    name: "Textured Pixie",
-    description: "Short layered crop",
-    image: require("./assets/hairstyles/pixie.png"),
-    top: 5,
-    left: 18,
-    width: 64,
-    swatch: "#963f37",
-  },
-  {
-    id: "curls",
-    name: "Coily Curls",
-    description: "Voluminous rounded curls",
-    image: require("./assets/hairstyles/curls.png"),
-    top: 0,
-    left: 15,
-    width: 70,
-    swatch: "#211c1c",
-  },
-  {
-    id: "high-bun",
-    name: "High Bun",
-    description: "Pulled-back bun style",
-    image: require("./assets/hairstyles/high-bun.png"),
-    top: -9,
-    left: 15,
-    width: 70,
-    swatch: "#c78c3e",
+    name: "Diagonal",
+    indexes: Array.from({ length: BOARD_SIZE }, (_, index) => index * BOARD_SIZE + (BOARD_SIZE - 1 - index)),
   },
 ];
 
-const DEFAULT_FIT: FitAdjustments = {
-  x: 0,
-  y: 0,
-  scale: 1,
-};
-
 export default function App() {
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [selectedStyleId, setSelectedStyleId] = useState(HAIRSTYLES[0].id);
-  const [fit, setFit] = useState<FitAdjustments>(DEFAULT_FIT);
-  const [isSaving, setIsSaving] = useState(false);
-  const previewRef = useRef<View>(null);
   const { width: windowWidth } = useWindowDimensions();
+  const isWide = windowWidth >= 760;
+  const [playerNames, setPlayerNames] = useState(DEFAULT_PLAYER_NAMES);
+  const [players, setPlayers] = useState<Player[]>(() => createPlayers(DEFAULT_PLAYER_NAMES));
+  const [calledNumbers, setCalledNumbers] = useState<number[]>([]);
+  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
+  const [winners, setWinners] = useState<Winner[]>([]);
+  const [lastNumber, setLastNumber] = useState<number | null>(null);
 
-  const selectedStyle = useMemo(
-    () => HAIRSTYLES.find((style) => style.id === selectedStyleId) ?? HAIRSTYLES[0],
-    [selectedStyleId],
-  );
+  const calledSet = useMemo(() => new Set(calledNumbers), [calledNumbers]);
+  const remainingCount = MAX_NUMBER - calledNumbers.length;
+  const gameHasStarted = calledNumbers.length > 0;
+  const hasWinner = winners.length > 0;
+  const currentPlayer = players[currentPlayerIndex] ?? players[0];
+  const winnerNames = winners
+    .map((winner) => players.find((player) => player.id === winner.playerId)?.name)
+    .filter(Boolean)
+    .join(" and ");
 
-  const previewWidth = Math.min(windowWidth - 32, 430);
-  const previewHeight = previewWidth * 1.32;
+  const updatePlayerName = (index: number, name: string) => {
+    setPlayerNames((current) => current.map((playerName, playerIndex) => (playerIndex === index ? name : playerName)));
+  };
 
-  const choosePortrait = async () => {
-    if (Platform.OS !== "web") {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        showMessage("Photo access needed", "Allow photo library access to upload a portrait.");
-        return;
-      }
+  const addPlayer = () => {
+    if (playerNames.length >= MAX_PLAYERS) {
+      return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      aspect: [3, 4],
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 1,
-    });
-
-    if (!result.canceled) {
-      setPhotoUri(result.assets[0].uri);
-      setFit(DEFAULT_FIT);
-    }
+    setPlayerNames((current) => [...current, `Player ${current.length + 1}`]);
   };
 
-  const selectHairstyle = (styleId: string) => {
-    setSelectedStyleId(styleId);
-    setFit(DEFAULT_FIT);
-  };
-
-  const adjustFit = (updates: Partial<FitAdjustments>) => {
-    setFit((current) => ({
-      x: clamp(updates.x ?? current.x, -12, 12),
-      y: clamp(updates.y ?? current.y, -16, 16),
-      scale: clamp(updates.scale ?? current.scale, 0.76, 1.32),
-    }));
-  };
-
-  const capturePreview = async () => {
-    if (!photoUri || !previewRef.current) {
-      showMessage("Add a portrait first", "Upload a front-facing photo before saving the preview.");
-      return null;
+  const removePlayer = (index: number) => {
+    if (playerNames.length <= MIN_PLAYERS) {
+      return;
     }
 
-    return captureRef(previewRef.current, {
-      format: "jpg",
-      quality: 0.95,
-      result: Platform.OS === "web" ? "data-uri" : "tmpfile",
-    });
+    setPlayerNames((current) => current.filter((_, playerIndex) => playerIndex !== index));
   };
 
-  const saveResult = async () => {
-    try {
-      setIsSaving(true);
-      const uri = await capturePreview();
-      if (!uri) {
-        return;
-      }
+  const startNewGame = () => {
+    const cleanNames = playerNames.map((name, index) => name.trim() || `Player ${index + 1}`);
+    setPlayerNames(cleanNames);
+    setPlayers(createPlayers(cleanNames));
+    setCalledNumbers([]);
+    setCurrentPlayerIndex(0);
+    setWinners([]);
+    setLastNumber(null);
+  };
 
-      if (Platform.OS === "web") {
-        downloadInBrowser(uri);
-        showMessage("Downloaded", "Your hairstyle preview has been downloaded.");
-        return;
-      }
-
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (!permission.granted) {
-        showMessage("Permission needed", "Allow photo library access to save your hairstyle preview.");
-        return;
-      }
-
-      await MediaLibrary.saveToLibraryAsync(uri);
-      showMessage("Saved", "Your hairstyle preview was saved to your photo library.");
-    } catch (error) {
-      showMessage("Save failed", error instanceof Error ? error.message : "Please try again.");
-    } finally {
-      setIsSaving(false);
+  const callNumber = () => {
+    if (hasWinner || remainingCount === 0) {
+      return;
     }
-  };
 
-  const shareResult = async () => {
-    try {
-      const uri = await capturePreview();
-      if (!uri) {
-        return;
-      }
+    const availableNumbers = NUMBERS.filter((number) => !calledSet.has(number));
+    const nextNumber = availableNumbers[Math.floor(Math.random() * availableNumbers.length)];
+    const nextCalledNumbers = [...calledNumbers, nextNumber];
+    const nextCalledSet = new Set(nextCalledNumbers);
+    const nextWinners = players
+      .map((player) => ({
+        playerId: player.id,
+        lines: getCompletedLines(player.board, nextCalledSet),
+      }))
+      .filter((winner) => winner.lines.length > 0);
 
-      if (Platform.OS === "web") {
-        downloadInBrowser(uri);
-        return;
-      }
+    setCalledNumbers(nextCalledNumbers);
+    setLastNumber(nextNumber);
+    setWinners(nextWinners);
 
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (!isAvailable) {
-        showMessage("Sharing unavailable", "Use Save result to store this preview on your device.");
-        return;
-      }
-
-      await Sharing.shareAsync(uri, {
-        dialogTitle: "Share your hairstyle preview",
-        mimeType: "image/jpeg",
-        UTI: "public.jpeg",
-      });
-    } catch (error) {
-      showMessage("Share failed", error instanceof Error ? error.message : "Please try again.");
+    if (nextWinners.length === 0 && availableNumbers.length > 1) {
+      setCurrentPlayerIndex((current) => (current + 1) % players.length);
     }
   };
 
@@ -220,403 +128,561 @@ export default function App() {
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Text style={styles.eyebrow}>Virtual hairstyle studio</Text>
-          <Text style={styles.title}>Try a new hairstyle on a front-facing portrait.</Text>
+          <Text style={styles.eyebrow}>Classroom bingo</Text>
+          <Text style={styles.title}>Take turns. Press the button. Find a line to win.</Text>
           <Text style={styles.subtitle}>
-            Upload a photo, choose a hairstyle, nudge the fit, then save or share the result.
+            A simple bingo game for children on phones, tablets, and classroom screens.
           </Text>
         </View>
 
-        <View style={styles.previewSection}>
-          <View
-            ref={previewRef}
-            collapsable={false}
-            style={[styles.previewFrame, { width: previewWidth, height: previewHeight }]}
-          >
-            {photoUri ? (
-              <Image source={{ uri: photoUri }} style={styles.portraitImage} resizeMode="cover" />
-            ) : (
-              <View style={styles.placeholder}>
-                <View style={styles.placeholderFace}>
-                  <View style={styles.placeholderHair} />
-                  <View style={styles.placeholderSmile} />
-                </View>
-                <Text style={styles.placeholderTitle}>Upload a front-facing portrait</Text>
-                <Text style={styles.placeholderCopy}>The selected hairstyle will appear here.</Text>
-              </View>
-            )}
-
-            {photoUri ? (
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.hairstyleOverlay,
-                  {
-                    left: `${selectedStyle.left + fit.x}%`,
-                    top: `${selectedStyle.top + fit.y}%`,
-                    width: `${selectedStyle.width * fit.scale}%`,
-                  },
-                ]}
-              >
-                <Image source={selectedStyle.image} style={styles.hairstyleImage} resizeMode="contain" />
-              </View>
-            ) : null}
+        <View style={[styles.gamePanel, isWide ? styles.gamePanelWide : null]}>
+          <View style={styles.turnCard}>
+            <Text style={styles.cardLabel}>Current turn</Text>
+            <Text style={styles.turnName}>{hasWinner ? "Game finished" : currentPlayer.name}</Text>
+            <Text style={styles.turnHint}>
+              {hasWinner
+                ? `${winnerNames} ${winners.length === 1 ? "wins" : "win"}!`
+                : gameHasStarted
+                  ? "Pass the device after pressing the button."
+                  : "Press Start Game when everyone is ready."}
+            </Text>
           </View>
 
-          <View style={styles.primaryActions}>
-            <Pressable style={styles.primaryButton} onPress={choosePortrait}>
-              <Text style={styles.primaryButtonText}>{photoUri ? "Change photo" : "Upload portrait"}</Text>
-            </Pressable>
+          <View style={styles.numberCard}>
+            <Text style={styles.cardLabel}>Last number</Text>
+            <View style={[styles.bigNumberBubble, hasWinner ? styles.winnerBubble : null]}>
+              <Text style={styles.bigNumberText}>{lastNumber ?? "?"}</Text>
+            </View>
             <Pressable
-              style={[styles.secondaryButton, !photoUri ? styles.disabledButton : null]}
-              onPress={saveResult}
-              disabled={!photoUri || isSaving}
+              accessibilityRole="button"
+              accessibilityLabel="Call a bingo number"
+              style={[
+                styles.bingoButton,
+                hasWinner || remainingCount === 0 ? styles.disabledButton : null,
+              ]}
+              onPress={callNumber}
+              disabled={hasWinner || remainingCount === 0}
             >
-              <Text style={[styles.secondaryButtonText, !photoUri ? styles.disabledText : null]}>
-                {Platform.OS === "web" ? "Download result" : isSaving ? "Saving..." : "Save result"}
-              </Text>
+              <Text style={styles.bingoButtonText}>{gameHasStarted ? "Bingo Button" : "Call first number"}</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {hasWinner ? (
+          <View style={styles.winnerBanner}>
+            <Text style={styles.winnerTitle}>BINGO!</Text>
+            <Text style={styles.winnerText}>
+              {winnerNames} {winners.length === 1 ? "completed" : "completed"} a line.
+            </Text>
+            <Pressable accessibilityRole="button" style={styles.resetButton} onPress={startNewGame}>
+              <Text style={styles.resetButtonText}>Play again</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <View style={styles.setupCard}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Players</Text>
+              <Text style={styles.helperText}>Add names, then start a fresh game board.</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.smallButton, playerNames.length >= MAX_PLAYERS ? styles.disabledButton : null]}
+              onPress={addPlayer}
+              disabled={playerNames.length >= MAX_PLAYERS}
+            >
+              <Text style={styles.smallButtonText}>Add</Text>
             </Pressable>
           </View>
 
-          <Pressable
-            style={[styles.linkButton, !photoUri ? styles.disabledButton : null]}
-            onPress={shareResult}
-            disabled={!photoUri}
-          >
-            <Text style={[styles.linkButtonText, !photoUri ? styles.disabledText : null]}>Share preview</Text>
+          <View style={styles.nameList}>
+            {playerNames.map((name, index) => (
+              <View key={`player-name-${index}`} style={styles.nameRow}>
+                <TextInput
+                  accessibilityLabel={`Player ${index + 1} name`}
+                  autoCapitalize="words"
+                  maxLength={18}
+                  onChangeText={(nextName) => updatePlayerName(index, nextName)}
+                  placeholder={`Player ${index + 1}`}
+                  placeholderTextColor="#8a9a8e"
+                  style={styles.nameInput}
+                  value={name}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove player ${index + 1}`}
+                  style={[styles.removeButton, playerNames.length <= MIN_PLAYERS ? styles.disabledButton : null]}
+                  onPress={() => removePlayer(index)}
+                  disabled={playerNames.length <= MIN_PLAYERS}
+                >
+                  <Text style={styles.removeButtonText}>Remove</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+
+          <Pressable accessibilityRole="button" style={styles.startButton} onPress={startNewGame}>
+            <Text style={styles.startButtonText}>{gameHasStarted || hasWinner ? "Start new game" : "Start game"}</Text>
           </Pressable>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>1. Choose a hairstyle</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hairstyleList}>
-            {HAIRSTYLES.map((style) => {
-              const isSelected = selectedStyleId === style.id;
+        <View style={styles.calledCard}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Called numbers</Text>
+              <Text style={styles.helperText}>{remainingCount} numbers left</Text>
+            </View>
+          </View>
+          <View style={styles.calledGrid}>
+            {NUMBERS.map((number) => {
+              const wasCalled = calledSet.has(number);
               return (
-                <Pressable
-                  key={style.id}
-                  onPress={() => selectHairstyle(style.id)}
-                  style={[styles.hairstyleCard, isSelected ? styles.hairstyleCardSelected : null]}
+                <View
+                  key={number}
+                  style={[
+                    styles.calledNumber,
+                    wasCalled ? styles.calledNumberActive : null,
+                    lastNumber === number ? styles.calledNumberLatest : null,
+                  ]}
                 >
-                  <View style={[styles.thumbnail, { backgroundColor: style.swatch }]}>
-                    <Image source={style.image} style={styles.thumbnailImage} resizeMode="contain" />
-                  </View>
-                  <Text style={styles.hairstyleName}>{style.name}</Text>
-                  <Text style={styles.hairstyleDescription}>{style.description}</Text>
-                </Pressable>
+                  <Text style={[styles.calledNumberText, wasCalled ? styles.calledNumberTextActive : null]}>
+                    {number}
+                  </Text>
+                </View>
               );
             })}
-          </ScrollView>
+          </View>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>2. Fit the overlay</Text>
-          <Text style={styles.helperText}>
-            Small adjustments help line the hairstyle up with different portrait crops.
-          </Text>
-          <View style={styles.controlGrid}>
-            <ControlButton label="Left" onPress={() => adjustFit({ x: fit.x - 2 })} />
-            <ControlButton label="Right" onPress={() => adjustFit({ x: fit.x + 2 })} />
-            <ControlButton label="Up" onPress={() => adjustFit({ y: fit.y - 2 })} />
-            <ControlButton label="Down" onPress={() => adjustFit({ y: fit.y + 2 })} />
-            <ControlButton label="Smaller" onPress={() => adjustFit({ scale: fit.scale - 0.06 })} />
-            <ControlButton label="Larger" onPress={() => adjustFit({ scale: fit.scale + 0.06 })} />
-          </View>
-          <Pressable style={styles.resetButton} onPress={() => setFit(DEFAULT_FIT)}>
-            <Text style={styles.resetButtonText}>Reset fit</Text>
-          </Pressable>
+        <View style={[styles.playerGrid, isWide ? styles.playerGridWide : null]}>
+          {players.map((player) => {
+            const playerWinner = winners.find((winner) => winner.playerId === player.id);
+            const isCurrentPlayer = player.id === currentPlayer.id && !hasWinner;
+
+            return (
+              <View
+                key={player.id}
+                style={[
+                  styles.playerCard,
+                  isWide ? styles.playerCardWide : null,
+                  isCurrentPlayer ? styles.currentPlayerCard : null,
+                  playerWinner ? styles.winningPlayerCard : null,
+                ]}
+              >
+                <View style={styles.playerHeader}>
+                  <View>
+                    <Text style={styles.playerName}>{player.name}</Text>
+                    <Text style={styles.playerStatus}>
+                      {playerWinner
+                        ? `Winner: ${playerWinner.lines.join(", ")}`
+                        : isCurrentPlayer
+                          ? "Your turn"
+                          : "Waiting"}
+                    </Text>
+                  </View>
+                  {isCurrentPlayer ? <Text style={styles.turnBadge}>Turn</Text> : null}
+                </View>
+
+                <View style={styles.boardGrid}>
+                  {player.board.map((number) => {
+                    const isMarked = calledSet.has(number);
+                    return (
+                      <View key={`${player.id}-${number}`} style={[styles.boardCell, isMarked ? styles.markedCell : null]}>
+                        <Text style={[styles.boardCellText, isMarked ? styles.markedCellText : null]}>{number}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            );
+          })}
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function ControlButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable style={styles.controlButton} onPress={onPress}>
-      <Text style={styles.controlButtonText}>{label}</Text>
-    </Pressable>
+function createPlayers(names: string[]) {
+  return names.map((name, index) => ({
+    id: `player-${index + 1}-${Date.now()}`,
+    name,
+    board: shuffleNumbers(NUMBERS),
+  }));
+}
+
+function shuffleNumbers(numbers: number[]) {
+  const shuffled = [...numbers];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+
+  return shuffled;
+}
+
+function getCompletedLines(board: number[], calledNumbers: Set<number>) {
+  return WINNING_LINES.filter((line) => line.indexes.every((index) => calledNumbers.has(board[index]))).map(
+    (line) => line.name,
   );
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function showMessage(title: string, message: string) {
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    window.alert(`${title}\n\n${message}`);
-    return;
-  }
-
-  Alert.alert(title, message);
-}
-
-function downloadInBrowser(uri: string) {
-  if (typeof document === "undefined") {
-    return;
-  }
-
-  const link = document.createElement("a");
-  link.href = uri;
-  link.download = `hairstyle-preview-${Date.now()}.jpg`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#fff7f1",
+    backgroundColor: "#f7fbf4",
   },
   content: {
     alignItems: "center",
-    gap: 18,
+    gap: 16,
     padding: 16,
     paddingBottom: 36,
   },
   hero: {
-    maxWidth: 520,
+    maxWidth: 920,
+    paddingTop: 12,
     width: "100%",
-    paddingTop: 10,
   },
   eyebrow: {
-    color: "#b66352",
+    color: "#3b7d56",
     fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.6,
+    fontWeight: "800",
+    letterSpacing: 0.7,
     marginBottom: 8,
     textTransform: "uppercase",
   },
   title: {
-    color: "#2d211d",
-    fontSize: 30,
-    fontWeight: "800",
-    lineHeight: 36,
+    color: "#183525",
+    fontSize: 32,
+    fontWeight: "900",
+    lineHeight: 38,
   },
   subtitle: {
-    color: "#6f5b52",
+    color: "#52665a",
     fontSize: 16,
-    lineHeight: 23,
+    lineHeight: 24,
     marginTop: 10,
   },
-  previewSection: {
-    alignItems: "center",
+  gamePanel: {
+    gap: 14,
+    maxWidth: 920,
     width: "100%",
   },
-  previewFrame: {
-    backgroundColor: "#f2ded2",
-    borderColor: "#ffffff",
-    borderRadius: 28,
-    borderWidth: 6,
-    elevation: 8,
-    overflow: "hidden",
-    shadowColor: "#4f271f",
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.16,
-    shadowRadius: 26,
-  },
-  portraitImage: {
-    height: "100%",
-    width: "100%",
-  },
-  hairstyleOverlay: {
-    aspectRatio: 1,
-    position: "absolute",
-  },
-  hairstyleImage: {
-    height: "100%",
-    width: "100%",
-  },
-  placeholder: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-    padding: 22,
-  },
-  placeholderFace: {
-    alignItems: "center",
-    backgroundColor: "#f5c29f",
-    borderRadius: 90,
-    height: 150,
-    justifyContent: "flex-end",
-    marginBottom: 18,
-    overflow: "hidden",
-    width: 126,
-  },
-  placeholderHair: {
-    backgroundColor: "#3e2a25",
-    borderBottomLeftRadius: 50,
-    borderBottomRightRadius: 50,
-    borderTopLeftRadius: 90,
-    borderTopRightRadius: 90,
-    height: 66,
-    left: -10,
-    position: "absolute",
-    top: -2,
-    width: 146,
-  },
-  placeholderSmile: {
-    borderBottomColor: "#bf5c52",
-    borderBottomWidth: 4,
-    borderRadius: 18,
-    height: 24,
-    marginBottom: 34,
-    width: 44,
-  },
-  placeholderTitle: {
-    color: "#3b2b25",
-    fontSize: 18,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  placeholderCopy: {
-    color: "#7b665c",
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: "center",
-  },
-  primaryActions: {
+  gamePanelWide: {
     flexDirection: "row",
-    gap: 12,
-    marginTop: 18,
-    width: "100%",
-    maxWidth: 430,
   },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: "#2d211d",
-    borderRadius: 999,
-    flex: 1,
-    justifyContent: "center",
-    minHeight: 52,
-    paddingHorizontal: 18,
-  },
-  primaryButtonText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  secondaryButton: {
-    alignItems: "center",
+  turnCard: {
     backgroundColor: "#ffffff",
-    borderColor: "#ead2c5",
-    borderRadius: 999,
+    borderColor: "#dfeadd",
+    borderRadius: 28,
     borderWidth: 1,
     flex: 1,
     justifyContent: "center",
-    minHeight: 52,
-    paddingHorizontal: 18,
+    minHeight: 190,
+    padding: 20,
   },
-  secondaryButtonText: {
-    color: "#2d211d",
+  numberCard: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#dfeadd",
+    borderRadius: 28,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 190,
+    padding: 20,
+  },
+  cardLabel: {
+    color: "#6d8173",
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  turnName: {
+    color: "#183525",
+    fontSize: 34,
+    fontWeight: "900",
+    marginTop: 12,
+  },
+  turnHint: {
+    color: "#5d7065",
     fontSize: 16,
-    fontWeight: "800",
+    lineHeight: 23,
+    marginTop: 8,
   },
-  linkButton: {
-    marginTop: 14,
-    padding: 8,
+  bigNumberBubble: {
+    alignItems: "center",
+    backgroundColor: "#e9f6e8",
+    borderColor: "#bcdcbc",
+    borderRadius: 48,
+    borderWidth: 2,
+    height: 96,
+    justifyContent: "center",
+    marginVertical: 14,
+    width: 96,
   },
-  linkButtonText: {
-    color: "#b66352",
-    fontSize: 15,
-    fontWeight: "800",
+  winnerBubble: {
+    backgroundColor: "#fff3bf",
+    borderColor: "#f6c945",
+  },
+  bigNumberText: {
+    color: "#183525",
+    fontSize: 42,
+    fontWeight: "900",
+  },
+  bingoButton: {
+    alignItems: "center",
+    backgroundColor: "#256f45",
+    borderRadius: 999,
+    minHeight: 54,
+    justifyContent: "center",
+    paddingHorizontal: 28,
+    width: "100%",
+  },
+  bingoButtonText: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
   },
   disabledButton: {
-    opacity: 0.48,
+    opacity: 0.45,
   },
-  disabledText: {
-    color: "#8f7a70",
+  winnerBanner: {
+    alignItems: "center",
+    backgroundColor: "#fff7d7",
+    borderColor: "#f4d66b",
+    borderRadius: 28,
+    borderWidth: 2,
+    maxWidth: 920,
+    padding: 20,
+    width: "100%",
   },
-  card: {
+  winnerTitle: {
+    color: "#77520d",
+    fontSize: 36,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+  winnerText: {
+    color: "#6c5b28",
+    fontSize: 17,
+    fontWeight: "700",
+    marginTop: 4,
+    textAlign: "center",
+  },
+  resetButton: {
+    backgroundColor: "#183525",
+    borderRadius: 999,
+    marginTop: 14,
+    paddingHorizontal: 24,
+    paddingVertical: 13,
+  },
+  resetButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  setupCard: {
     backgroundColor: "#ffffff",
-    borderColor: "#f0ded5",
-    borderRadius: 26,
+    borderColor: "#dfeadd",
+    borderRadius: 28,
     borderWidth: 1,
-    maxWidth: 520,
+    maxWidth: 920,
     padding: 16,
     width: "100%",
   },
-  sectionLabel: {
-    color: "#2d211d",
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 12,
-  },
-  hairstyleList: {
-    gap: 12,
-    paddingRight: 8,
-  },
-  hairstyleCard: {
-    backgroundColor: "#fff7f1",
-    borderColor: "transparent",
-    borderRadius: 20,
-    borderWidth: 2,
-    padding: 10,
-    width: 148,
-  },
-  hairstyleCardSelected: {
-    borderColor: "#b66352",
-  },
-  thumbnail: {
+  sectionHeader: {
     alignItems: "center",
-    borderRadius: 16,
-    height: 112,
-    justifyContent: "center",
-    overflow: "hidden",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
   },
-  thumbnailImage: {
-    height: 112,
-    width: 112,
-  },
-  hairstyleName: {
-    color: "#2d211d",
-    fontSize: 15,
-    fontWeight: "800",
-    marginTop: 10,
-  },
-  hairstyleDescription: {
-    color: "#75645c",
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
+  sectionTitle: {
+    color: "#183525",
+    fontSize: 20,
+    fontWeight: "900",
   },
   helperText: {
-    color: "#746158",
+    color: "#6d8173",
     fontSize: 14,
     lineHeight: 20,
-    marginBottom: 14,
+    marginTop: 3,
   },
-  controlGrid: {
+  smallButton: {
+    backgroundColor: "#e9f6e8",
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  smallButtonText: {
+    color: "#256f45",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  nameList: {
+    gap: 10,
+    marginTop: 14,
+  },
+  nameRow: {
+    alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 10,
   },
-  controlButton: {
+  nameInput: {
+    backgroundColor: "#f7fbf4",
+    borderColor: "#d6e5d3",
+    borderRadius: 18,
+    borderWidth: 1,
+    color: "#183525",
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "800",
+    minHeight: 50,
+    paddingHorizontal: 14,
+  },
+  removeButton: {
+    backgroundColor: "#fff0e8",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  removeButtonText: {
+    color: "#a34d25",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  startButton: {
     alignItems: "center",
-    backgroundColor: "#fff7f1",
-    borderColor: "#ead2c5",
+    backgroundColor: "#183525",
+    borderRadius: 999,
+    justifyContent: "center",
+    marginTop: 14,
+    minHeight: 52,
+  },
+  startButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  calledCard: {
+    backgroundColor: "#ffffff",
+    borderColor: "#dfeadd",
+    borderRadius: 28,
+    borderWidth: 1,
+    maxWidth: 920,
+    padding: 16,
+    width: "100%",
+  },
+  calledGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 14,
+  },
+  calledNumber: {
+    alignItems: "center",
+    backgroundColor: "#f0f5ee",
+    borderColor: "transparent",
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  calledNumberActive: {
+    backgroundColor: "#256f45",
+  },
+  calledNumberLatest: {
+    borderColor: "#f6c945",
+  },
+  calledNumberText: {
+    color: "#718176",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  calledNumberTextActive: {
+    color: "#ffffff",
+  },
+  playerGrid: {
+    gap: 14,
+    maxWidth: 920,
+    width: "100%",
+  },
+  playerGridWide: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  playerCard: {
+    backgroundColor: "#ffffff",
+    borderColor: "#dfeadd",
+    borderRadius: 28,
+    borderWidth: 2,
+    padding: 14,
+    width: "100%",
+  },
+  playerCardWide: {
+    width: "48.4%",
+  },
+  currentPlayerCard: {
+    borderColor: "#7dc78b",
+  },
+  winningPlayerCard: {
+    backgroundColor: "#fff9df",
+    borderColor: "#f6c945",
+  },
+  playerHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  playerName: {
+    color: "#183525",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  playerStatus: {
+    color: "#66766c",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  turnBadge: {
+    backgroundColor: "#e9f6e8",
+    borderRadius: 999,
+    color: "#256f45",
+    fontSize: 13,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  boardGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  boardCell: {
+    alignItems: "center",
+    aspectRatio: 1,
+    backgroundColor: "#f7fbf4",
+    borderColor: "#d6e5d3",
     borderRadius: 16,
     borderWidth: 1,
-    minWidth: 96,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    justifyContent: "center",
+    width: "18%",
   },
-  controlButtonText: {
-    color: "#3b2b25",
-    fontSize: 14,
-    fontWeight: "800",
+  markedCell: {
+    backgroundColor: "#256f45",
+    borderColor: "#256f45",
   },
-  resetButton: {
-    alignSelf: "flex-start",
-    marginTop: 12,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
+  boardCellText: {
+    color: "#183525",
+    fontSize: 18,
+    fontWeight: "900",
   },
-  resetButtonText: {
-    color: "#b66352",
-    fontSize: 14,
-    fontWeight: "800",
+  markedCellText: {
+    color: "#ffffff",
   },
 });
